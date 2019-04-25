@@ -7,6 +7,7 @@ from datetime import datetime
 import six
 from django.utils.functional import cached_property
 from parsimonious.exceptions import ParseError
+from parsimonious.expressions import Optional
 from parsimonious.nodes import Node
 from parsimonious.grammar import Grammar, NodeVisitor
 
@@ -83,7 +84,9 @@ def translate(pat):
 
 
 event_search_grammar = Grammar(r"""
-search          = search_term*
+search          = (nested_boolean_term / boolean_term / search_term)*
+nested_boolean_term = boolean_term boolean_operator? search_term
+boolean_term          = search_term boolean_operator? search_term
 search_term     = key_val_term / quoted_raw_search / raw_search
 key_val_term    = space? (time_filter / rel_time_filter / specific_time_filter
                   / numeric_filter / has_filter / is_filter / basic_filter)
@@ -120,7 +123,9 @@ rel_date_format = ~r"[\+\-][0-9]+[wdhm](?=\s|$)"
 # NOTE: the order in which these operators are listed matters
 # because for example, if < comes before <= it will match that
 # even if the operator is <=
+boolean_operator = "OR" / "or" / "AND" / "and"
 operator        = ">=" / "<=" / ">" / "<" / "=" / "!="
+group_sep = "(" / ")"
 sep             = ":"
 space           = " "
 negation        = "!"
@@ -141,6 +146,10 @@ no_conversion = set(['project_id', 'start', 'end'])
 
 
 class InvalidSearchQuery(Exception):
+    pass
+
+
+class SearchBoolean(namedtuple('BooleanSearchTerm', 'term1 operator term2')):
     pass
 
 
@@ -244,7 +253,8 @@ class SearchVisitor(NodeVisitor):
                 search_filters.append(item)
             return search_filters
 
-        return reduce(merge_messages, children, [])
+        # TODO(lb): yeah I realize this is weird. I'll come back to it.
+        return reduce(merge_messages, children, [])[0]
 
     def visit_key_val_term(self, node, children):
         _, key_val_term, _ = children
@@ -269,7 +279,20 @@ class SearchVisitor(NodeVisitor):
             return None
         return SearchFilter(SearchKey('message'), "=", SearchValue(value))
 
-    def visit_numeric_filter(self, node, (search_key, _, operator, search_value)):
+    def visit_boolean_term(self, node, children):
+        term1, term2 = children[0][0], children[2][0]
+        operator = children[1]
+        if isinstance(operator, Node) and isinstance(operator.expr, Optional):
+            operator = "AND"
+        else:
+            operator = operator[0]
+        return [SearchBoolean(term1, operator, term2)]
+
+    def visit_nested_boolean_term(self, node, children):
+        return self.visit_boolean_term(node, children)
+
+    def visit_numeric_filter(self, node, xxx_todo_changeme):
+        (search_key, _, operator, search_value) = xxx_todo_changeme
         operator = operator[0] if not isinstance(operator, Node) else '='
 
         if search_key.name in self.numeric_keys:
@@ -284,7 +307,8 @@ class SearchVisitor(NodeVisitor):
             )
             return self._handle_basic_filter(search_key, '=', search_value)
 
-    def visit_time_filter(self, node, (search_key, _, operator, search_value)):
+    def visit_time_filter(self, node, xxx_todo_changeme1):
+        (search_key, _, operator, search_value) = xxx_todo_changeme1
         if search_key.name in self.date_keys:
             try:
                 search_value = parse_datetime_string(search_value)
@@ -295,7 +319,8 @@ class SearchVisitor(NodeVisitor):
             search_value = operator + search_value if operator != '=' else search_value
             return self._handle_basic_filter(search_key, '=', SearchValue(search_value))
 
-    def visit_rel_time_filter(self, node, (search_key, _, value)):
+    def visit_rel_time_filter(self, node, xxx_todo_changeme2):
+        (search_key, _, value) = xxx_todo_changeme2
         if search_key.name in self.date_keys:
             try:
                 from_val, to_val = parse_datetime_range(value.text)
@@ -313,10 +338,11 @@ class SearchVisitor(NodeVisitor):
         else:
             return self._handle_basic_filter(search_key, '=', SearchValue(value.text))
 
-    def visit_specific_time_filter(self, node, (search_key, _, date_value)):
+    def visit_specific_time_filter(self, node, xxx_todo_changeme3):
         # If we specify a specific date, it means any event on that day, and if
         # we specify a specific datetime then it means a few minutes interval
         # on either side of that datetime
+        (search_key, _, date_value) = xxx_todo_changeme3
         if search_key.name not in self.date_keys:
             return self._handle_basic_filter(search_key, '=', SearchValue(date_value))
 
@@ -356,7 +382,8 @@ class SearchVisitor(NodeVisitor):
 
         return node.text == '!'
 
-    def visit_basic_filter(self, node, (negation, search_key, _, search_value)):
+    def visit_basic_filter(self, node, xxx_todo_changeme4):
+        (negation, search_key, _, search_value) = xxx_todo_changeme4
         operator = '!=' if self.is_negated(negation) else '='
         return self._handle_basic_filter(search_key, operator, search_value)
 
@@ -397,6 +424,12 @@ class SearchVisitor(NodeVisitor):
 
     def visit_search_value(self, node, children):
         return SearchValue(children[0])
+
+    def visit_boolean_operator(self, node, children):
+        operator = node.text.upper()
+        if operator not in ['OR', 'AND']:
+            raise InvalidSearchQuery('Only "OR" or "AND" queries are not supported in this search')
+        return operator
 
     def visit_value(self, node, children):
         return node.text
