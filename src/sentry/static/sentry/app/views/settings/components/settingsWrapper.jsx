@@ -56,7 +56,4 @@ const StyledSettingsWrapper = styled.div`
   .messages-container {
     margin: 0;
   }
-  .sentry-error-embed-wrapper {
-    z-index: ${p => p.theme.zIndex.sentryErrorEmbed};
-  }
 `;
