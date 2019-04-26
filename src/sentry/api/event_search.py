@@ -85,13 +85,13 @@ def translate(pat):
 
 event_search_grammar = Grammar(r"""
 search          = (nested_boolean_term / boolean_term / search_term)*
-nested_boolean_term = boolean_term boolean_operator? search_term
-boolean_term          = search_term boolean_operator? search_term
+nested_boolean_term = boolean_term boolean_operator search_term
+boolean_term          = search_term boolean_operator search_term
 search_term     = key_val_term / quoted_raw_search / raw_search
 key_val_term    = space? (time_filter / rel_time_filter / specific_time_filter
                   / numeric_filter / has_filter / is_filter / basic_filter)
                   space?
-raw_search      = ~r"\ *([^\ ^\n]+)\ *"
+raw_search      = (!key_val_term ~r"\ *([^\ ^\n]+)\ *" )*
 quoted_raw_search = spaces quoted_value spaces
 
 # standard key:val filter
@@ -149,7 +149,7 @@ class InvalidSearchQuery(Exception):
     pass
 
 
-class SearchBoolean(namedtuple('BooleanSearchTerm', 'term1 operator term2')):
+class SearchBoolean(namedtuple('SearchBoolean', 'term1 operator term2')):
     pass
 
 
@@ -237,24 +237,7 @@ class SearchVisitor(NodeVisitor):
         children = [child for group in children for child in _flatten(group)]
         children = filter(None, _flatten(children))
 
-        # Now collapse all adjacent `message` filters together. The assumption
-        # being that any messages next to each other are part of the same term,
-        # but if they're separated by a tag then they're a separate term.
-        def merge_messages(search_filters, item):
-            if not search_filters:
-                search_filters.append(item)
-                return search_filters
-
-            prev_filter = search_filters[-1]
-            if prev_filter.key.name == 'message' and item.key.name == 'message':
-                new_message = u'%s %s' % (prev_filter.value.raw_value, item.value.raw_value)
-                search_filters[-1] = prev_filter._replace(value=SearchValue(new_message))
-            else:
-                search_filters.append(item)
-            return search_filters
-
-        # TODO(lb): yeah I realize this is weird. I'll come back to it.
-        return reduce(merge_messages, children, [])[0]
+        return children[0]
 
     def visit_key_val_term(self, node, children):
         _, key_val_term, _ = children
@@ -262,7 +245,7 @@ class SearchVisitor(NodeVisitor):
         return key_val_term[0]
 
     def visit_raw_search(self, node, children):
-        value = node.match.groups()[0]
+        value = node.text
 
         if not value:
             return None
