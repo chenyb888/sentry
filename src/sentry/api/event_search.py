@@ -262,7 +262,7 @@ class SearchVisitor(NodeVisitor):
         return key_val_term[0]
 
     def visit_raw_search(self, node, children):
-        value = node.text
+        value = node.match.groups()[0]
 
         if not value:
             return None
