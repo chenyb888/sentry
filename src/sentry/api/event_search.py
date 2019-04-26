@@ -7,7 +7,6 @@ from datetime import datetime
 import six
 from django.utils.functional import cached_property
 from parsimonious.exceptions import ParseError
-from parsimonious.expressions import Optional
 from parsimonious.nodes import Node
 from parsimonious.grammar import Grammar, NodeVisitor
 
@@ -149,7 +148,7 @@ class InvalidSearchQuery(Exception):
     pass
 
 
-class SearchBoolean(namedtuple('SearchBoolean', 'term1 operator term2')):
+class SearchBoolean(namedtuple('SearchBoolean', 'left_term operator right_term')):
     pass
 
 
@@ -279,12 +278,9 @@ class SearchVisitor(NodeVisitor):
         return SearchFilter(SearchKey('message'), "=", SearchValue(value))
 
     def visit_boolean_term(self, node, children):
-        term1, term2 = children[0][0], children[2][0]
+        left_term, right_term = children[0][0], children[2][0]
         operator = children[1]
-        if isinstance(operator, Node) and isinstance(operator.expr, Optional):
-            operator = "AND"
-
-        return [SearchBoolean(term1, operator, term2)]
+        return [SearchBoolean(left_term, operator, right_term)]
 
     def visit_nested_boolean_term(self, node, children):
         return self.visit_boolean_term(node, children)
@@ -380,8 +376,8 @@ class SearchVisitor(NodeVisitor):
 
         return node.text == '!'
 
-    def visit_basic_filter(self, node, xxx_todo_changeme4):
-        (negation, search_key, _, search_value) = xxx_todo_changeme4
+    def visit_basic_filter(self, node, children):
+        (negation, search_key, _, search_value) = children
         operator = '!=' if self.is_negated(negation) else '='
         return self._handle_basic_filter(search_key, operator, search_value)
 
@@ -424,10 +420,7 @@ class SearchVisitor(NodeVisitor):
         return SearchValue(children[0])
 
     def visit_boolean_operator(self, node, children):
-        operator = node.text.upper()
-        if operator not in ['OR', 'AND']:
-            raise InvalidSearchQuery('Only "OR" or "AND" queries are not supported in this search')
-        return operator
+        return node.text.upper()
 
     def visit_value(self, node, children):
         return node.text
