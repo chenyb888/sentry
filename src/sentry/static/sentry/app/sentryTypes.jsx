@@ -401,6 +401,13 @@ export const Incident = PropTypes.shape({
   status: PropTypes.string.isRequired,
   query: PropTypes.string,
   projects: PropTypes.array.isRequired,
+  suspects: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.string,
+      type: PropTypes.string,
+      likelihood: PropTypes.string,
+    })
+  ).isRequired,
 });
 
 export const GlobalSelection = PropTypes.shape({
